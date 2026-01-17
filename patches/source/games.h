@@ -95,6 +95,7 @@ struct gm_file_entry_struct {
     gm_asset_t asset;
     gm_file_type_t type;
     gm_file_entry_t *second;
+    bool validated;
 };
 
 extern int number_of_lines;

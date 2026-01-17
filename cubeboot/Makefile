@@ -19,7 +19,7 @@ include $(DEVKITPRO)/libogc2/gamecube_rules
 # SOURCES is a list of directories containing source code
 # INCLUDES is a list of directories containing extra header files
 #---------------------------------------------------------------------------------
-TARGET		:=	$(notdir $(CURDIR))
+TARGET		:=	ipl
 BUILD		:=	build
 SOURCES		:=	source source/pngu source/boot source/emu source/emu/ffs
 DATA		:=	data  

@@ -689,7 +689,75 @@ static bool gm_load_icon(gm_file_entry_t *entry, u32 aram_offset, bool force_unl
 }
 
 #endif
+void gm_check_files(int path_count) {
+    u64 start_time = gettime();
 
+    for (int i = 0; i < path_count; i++) {
+        gm_path_entry_t *path_entry = __gm_sorted_path_list[i];
+
+        if (!OSTryLockMutex(game_enum_mutex)) {
+            OSReport("STOPPING GAME LOADING\n");
+            break;
+        }
+        OSUnlockMutex(game_enum_mutex);
+
+        // Games
+        if (path_entry->type == GM_FILE_TYPE_GAME) {
+
+            gm_file_entry_t *backing = gm_malloc(sizeof(gm_file_entry_t));
+            memset(backing, 0, sizeof(gm_file_entry_t));
+
+            strcpy(backing->path, path_entry->path);
+            backing->type = GM_FILE_TYPE_GAME;
+            backing->validated = false;          // lazy validation
+            backing->asset.use_banner = true;    // default assumption
+
+            // derive fallback name from filename
+            char *base = strrchr(path_entry->path, '/');
+            if (base) {
+                strncpy(backing->desc.fullGameName, base + 1, 
+                        sizeof(backing->desc.fullGameName) - 1);
+            }
+
+            gm_entry_backing[gm_entry_count++] = backing;
+        }
+
+        // Programs and directories
+        else if (path_entry->type == GM_FILE_TYPE_PROGRAM ||
+                 path_entry->type == GM_FILE_TYPE_DIRECTORY) {
+
+            gm_file_entry_t *backing = gm_malloc(sizeof(gm_file_entry_t));
+            memset(backing, 0, sizeof(gm_file_entry_t));
+
+            strcpy(backing->path, path_entry->path);
+            backing->type = path_entry->type;
+            backing->validated = true; // no validation needed
+
+            char *base = strrchr(path_entry->path, '/');
+            if (base) {
+                strcpy(backing->desc.fullGameName, base + 1);
+            }
+
+            if (path_entry->type == GM_FILE_TYPE_PROGRAM) {
+                strcpy(backing->desc.description, "Homebrew Program");
+            } else {
+                strcpy(backing->desc.description, "Directory");
+            }
+
+            backing->asset.use_banner = false;
+
+            gm_entry_backing[gm_entry_count++] = backing;
+        }
+
+        game_backing_count = gm_entry_count;
+    }
+
+    f32 runtime = (f32)diff_usec(start_time, gettime()) / 1000.0f;
+    OSReport("gm_check_files completed: %d entries, %f ms\n",
+             gm_entry_count, runtime);
+}
+
+/* REMOVING THIS LATER, USED FOR REFERENCE...
 void gm_check_files(int path_count) {
     // Here we will also check for override assets and matching save icons
     u32 aram_offset = (1 * 1024 * 1024); // 1MB mark
@@ -824,7 +892,7 @@ void gm_check_files(int path_count) {
     OSReport("Header check took=%f\n", runtime);
     (void)runtime;
 }
-
+*/
 void gm_line_load(int line_num) {
     // OSReport("Line load %d\n", line_num);
 
