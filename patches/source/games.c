@@ -619,7 +619,7 @@ static int gm_load_banner(gm_file_entry_t *entry, u32 aram_offset, bool force_un
     }
 
     // TODO: check current language using extra.dvd_bnr_type
-    memcpy(&entry->desc, &banner_buffer.desc[0], sizeof(BNRDesc));
+    //memcpy(&entry->desc, &banner_buffer.desc[0], sizeof(BNRDesc));
 
     return true;
 }
@@ -709,7 +709,7 @@ void gm_check_files(int path_count) {
 
             strcpy(backing->path, path_entry->path);
             backing->type = GM_FILE_TYPE_GAME;
-            backing->validated = false;          // lazy validation
+            backing->meta_ready = false;          // metadata not ready yet.
             backing->asset.use_banner = true;    // default assumption
 
             // derive fallback name from filename
@@ -719,7 +719,8 @@ void gm_check_files(int path_count) {
                         sizeof(backing->desc.fullGameName) - 1);
             }
 
-            gm_entry_backing[gm_entry_count++] = backing;
+            gm_entry_backing[gm_entry_count] = backing;
+            gm_entry_count++;
         }
 
         // Programs and directories
@@ -731,7 +732,7 @@ void gm_check_files(int path_count) {
 
             strcpy(backing->path, path_entry->path);
             backing->type = path_entry->type;
-            backing->validated = true; // no validation needed
+            backing->meta_ready = true; // no validation needed
 
             char *base = strrchr(path_entry->path, '/');
             if (base) {
@@ -746,7 +747,8 @@ void gm_check_files(int path_count) {
 
             backing->asset.use_banner = false;
 
-            gm_entry_backing[gm_entry_count++] = backing;
+            gm_entry_backing[gm_entry_count] = backing;
+            gm_entry_count++;
         }
 
         game_backing_count = gm_entry_count;
@@ -755,6 +757,41 @@ void gm_check_files(int path_count) {
     f32 runtime = (f32)diff_usec(start_time, gettime()) / 1000.0f;
     OSReport("gm_check_files completed: %d entries, %f ms\n",
              gm_entry_count, runtime);
+}
+
+bool gm_parse_banner_meta(gm_file_entry_t *entry) {
+    if (entry->meta_ready) return true;
+
+    dolphin_game_into_t info = get_game_info(entry->path);
+    if (!info.valid) return false;
+
+    entry->extra.game_id[0] = info.game_id[0];
+    memcpy(entry->extra.game_id, info.game_id, sizeof(entry->extra.game_id));
+    entry->extra.disc_num = info.disc_num;
+    entry->extra.disc_ver = info.disc_ver;
+    entry->extra.dvd_bnr_offset = info.bnr_offset;
+    entry->extra.dvd_bnr_type = info.bnr_type;
+    entry->extra.dvd_dol_offset = info.dol_offset;
+    entry->extra.dvd_fst_offset = info.fst_offset;
+    entry->extra.dvd_fst_size = info.fst_size;
+    entry->extra.dvd_max_fst_size = info.max_fst_size;
+
+    // Read ONLY the BNR header and desc, no banner load..
+    if (entry->extra.dvd_bnr_offset != 0) {
+        BNR bnr;
+        dvd_custom_open(entry->path, FILE_ENTRY_TYPE_FILE,
+                        IPC_FILE_FLAG_DISABLECACHE | IPC_FILE_FLAG_DISABLESPEEDEMU);
+        file_status_t *status = dvd_custom_status();
+        if (status && status->result == 0) {
+            dvd_threaded_read(&bnr, sizeof(BNR), entry->extra.dvd_bnr_offset, status->fd);
+            dvd_custom_close(status->fd);
+
+            memcpy(&entry->desc, &bnr.desc[0], sizeof(BNRDesc));
+        }
+    }
+
+    entry->meta_ready = true;
+    return true;
 }
 
 /* REMOVING THIS LATER, USED FOR REFERENCE...
@@ -1070,6 +1107,14 @@ void *gm_thread_worker(void* param) {
     gm_setup_grid(list_info.num_paths, true);
     gm_sort_files(list_info.num_paths);
     gm_check_files(list_info.num_paths);
+
+    for (int i = 0; i < gm_entry_count; i++) {
+        gm_file_entry_t *e = gm_entry_backing[i];
+        if (e->type == GM_FILE_TYPE_GAME) {
+            gm_parse_banner_meta(e);
+        }
+    }
+
     gm_setup_grid(gm_entry_count, false);
 
     game_enum_running = false;
