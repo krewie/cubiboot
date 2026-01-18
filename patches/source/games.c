@@ -759,6 +759,51 @@ void gm_check_files(int path_count) {
              gm_entry_count, runtime);
 }
 
+bool gm_banner_texture(gm_file_entry_t *entry) {
+    if (!entry || !entry->meta_ready)
+        return false;
+
+    if (entry->extra.dvd_bnr_offset == 0)
+        return false;
+
+    static BNR bnr;
+
+    dvd_custom_open(entry->path, FILE_ENTRY_TYPE_FILE,
+                    IPC_FILE_FLAG_DISABLECACHE | IPC_FILE_FLAG_DISABLESPEEDEMU);
+
+    file_status_t *status = dvd_custom_status();
+    if (!status || status->result != 0) {
+        dvd_custom_close(status ? status->fd : 0);
+        return false;
+    }
+
+    dvd_threaded_read(&bnr, sizeof(BNR),
+                      entry->extra.dvd_bnr_offset,
+                      status->fd);
+
+    dvd_custom_close(status->fd);
+
+    // Copy metadata
+    memcpy(&entry->desc, &bnr.desc[0], sizeof(BNRDesc));
+
+    gm_banner_buf_t *buf = gm_get_banner_buf();
+    
+    if (!buf) {
+        return false;
+    }
+
+    memcpy(buf->data, bnr.pixelData, BNR_PIXELDATA_LEN);
+    DCFlushRange(buf->data, BNR_PIXELDATA_LEN);
+
+    entry->asset.banner.buf = buf;
+    entry->asset.banner.state = GM_LOAD_STATE_LOADED;
+
+    DCFlushRange(&entry->asset.banner, sizeof(gm_banner_t));
+
+    return true;
+}
+
+
 bool gm_parse_banner_meta(gm_file_entry_t *entry) {
     if (entry->meta_ready) return true;
 
@@ -1108,10 +1153,16 @@ void *gm_thread_worker(void* param) {
     gm_sort_files(list_info.num_paths);
     gm_check_files(list_info.num_paths);
 
-    for (int i = 0; i < gm_entry_count; i++) {
+    bool loaded = false;
+
+    for (int i = 0; i < gm_entry_count && !loaded; i++) {
         gm_file_entry_t *e = gm_entry_backing[i];
         if (e->type == GM_FILE_TYPE_GAME) {
-            gm_parse_banner_meta(e);
+            if (gm_parse_banner_meta(e) && e->extra.dvd_bnr_offset != 0) {
+
+                gm_banner_texture(e);
+                loaded = true;
+            }
         }
     }
 
