@@ -759,7 +759,26 @@ void gm_check_files(int path_count) {
              gm_entry_count, runtime);
 }
 
-bool gm_banner_texture(gm_file_entry_t *entry) {
+static inline bool gm_entry_is_visible(int index) {
+    int line = index / ASSETS_PER_LINE;
+
+    int first = top_line_num - PRELOAD_LINE_COUNT;
+    int last  = top_line_num + DRAW_TOTAL_ROWS + PRELOAD_LINE_COUNT - 1;
+
+    return (line >= first && line <= last);
+}
+
+
+bool gm_banner_texture(int index, gm_file_entry_t *entry) {
+    if (entry->asset.banner.state == GM_LOAD_STATE_LOADED)
+        return true;
+
+    if (!entry)
+        return false;
+    
+    if (!gm_entry_is_visible(index))
+        return false;
+
     if (!entry || !entry->meta_ready)
         return false;
 
@@ -984,8 +1003,8 @@ void gm_line_load(int line_num) {
 
         gm_file_entry_t *entry = gm_entry_backing[index];
         if (entry->type == GM_FILE_TYPE_GAME) {
-            gm_icon_load(&entry->asset.icon);
-            gm_banner_load(&entry->asset.banner);
+            //gm_icon_load(&entry->asset.icon);
+            gm_banner_texture(index, entry);
         } else {
             gm_icon_load(&entry->asset.icon);
         }
@@ -1024,7 +1043,7 @@ void gm_line_changed(int delta) {
         if (load_line >= 0) {
             // load
             // OSReport("DEBUG: Load line %d\n", load_line);
-            gm_line_load(load_line);
+            //gm_line_load(load_line);
         }
 
         // unload from the bottom
@@ -1032,14 +1051,14 @@ void gm_line_changed(int delta) {
         if (unload_line < number_of_lines) {
             // unload
             // OSReport("DEBUG: Unload line %d\n", unload_line);
-            gm_line_free(unload_line);
+            //gm_line_free(unload_line);
         }
     } else if (delta > 0) {
         int load_line = new_line_num + DRAW_TOTAL_ROWS + PRELOAD_LINE_COUNT - 1;
         if (load_line < number_of_lines) {
             // load
             // OSReport("DEBUG: Load line %d\n", load_line);
-            gm_line_load(load_line);
+            //gm_line_load(load_line);
         }
 
         // unload from the top
@@ -1047,7 +1066,7 @@ void gm_line_changed(int delta) {
         if (unload_line >= 0) {
             // unload
             // OSReport("DEBUG: Unload line %d\n", unload_line);
-            gm_line_free(unload_line);
+            //gm_line_free(unload_line);
         }
     }
 
@@ -1153,20 +1172,19 @@ void *gm_thread_worker(void* param) {
     gm_sort_files(list_info.num_paths);
     gm_check_files(list_info.num_paths);
 
-    bool loaded = false;
-
-    for (int i = 0; i < gm_entry_count && !loaded; i++) {
+    for (int i = 0; i < gm_entry_count; i++) {
         gm_file_entry_t *e = gm_entry_backing[i];
         if (e->type == GM_FILE_TYPE_GAME) {
-            if (gm_parse_banner_meta(e) && e->extra.dvd_bnr_offset != 0) {
-
-                gm_banner_texture(e);
-                loaded = true;
-            }
+            gm_parse_banner_meta(e);
         }
     }
 
     gm_setup_grid(gm_entry_count, false);
+    // one temporary line load...
+    for (int line = 0; line < DRAW_TOTAL_ROWS + PRELOAD_LINE_COUNT; line++) {
+        gm_line_load(line);
+    }
+
 
     game_enum_running = false;
     // DCBlockStore((void*)OSRoundDown32B((u32)&game_enum_running));
